@@ -564,7 +564,7 @@ def test_page_error_becomes_a_parse_error_finding(monkeypatch: pytest.MonkeyPatc
     assert parse[0].title == "page could not be parsed"
     assert parse[0].detail == ("damaged xref",)
     assert ready.stages[0].name == PARSING
-    assert ready.stages[0].by == "pymupdf"
+    assert ready.stages[0].by == "pdf-oxide"
     assert ready.stages[0].summary == "3 pages, 1 refs"
 
 

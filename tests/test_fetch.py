@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-import pymupdf
+import pdf_oxide
 import pytest
 import respx
 
@@ -119,11 +119,11 @@ WAYBACK_PAYLOAD: dict[str, Any] = {
 
 
 def pdf_bytes(text: str) -> bytes:
-    doc = pymupdf.open()
-    doc.new_page().insert_text((72, 72), text)
-    body: bytes = doc.tobytes()
-    doc.close()
-    return body
+    builder = pdf_oxide.DocumentBuilder()
+    page = builder.page(595.0, 842.0)
+    page.at(72.0, 842.0 - 72.0).text(text)
+    page.done()
+    return builder.build()
 
 
 class StubGate:
