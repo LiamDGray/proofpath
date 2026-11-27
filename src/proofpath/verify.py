@@ -266,8 +266,8 @@ MARKERS_SET_ASIDE = (
 # document itself.
 _BARE_URL = re.compile(r"https?://\S+")
 
-_PARSER_BY_KIND = {"pdf": "pymupdf", "docx": "python-docx", "post": POST_READER}
-_PARSER_BY_SUFFIX = {".pdf": "pymupdf", ".docx": "python-docx"}
+_PARSER_BY_KIND = {"pdf": "pdf-oxide", "docx": "python-docx", "post": POST_READER}
+_PARSER_BY_SUFFIX = {".pdf": "pdf-oxide", ".docx": "python-docx"}
 _TEXT_PARSER = "text"
 
 # ``Resolves``, ``FetchesOpenAccess`` and ``FetchesUrl`` are imported above and
@@ -1726,7 +1726,10 @@ def _verdict_finding(claim: Claim, status: SourceStatus, verdict: Verdict) -> Fi
                 if found
                 else "source neither supports nor contradicts the claim"
             )
-            detail = (*detail, f"demoted from REFUTED: evidence is {status.text_kind}, not full text")
+            detail = (
+                *detail,
+                f"demoted from REFUTED: evidence is {status.text_kind}, not full text",
+            )
         else:
             kind = Kind.NOT_SUPPORTED
             title = f"claim is not supported by {source}"

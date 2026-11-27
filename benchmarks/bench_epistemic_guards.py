@@ -11,11 +11,11 @@ from proofpath.document import Claim, Locator, Reference
 from proofpath.fetch import Fetcher, _Response
 from proofpath.models import Label, Passage, Verdict
 from proofpath.report import Kind, SourceStatus
-from proofpath.resolve import State, classify, looks_unindexed
+from proofpath.resolve import State, classify
 from proofpath.verify import _verdict_finding
 
 
-def run_benchmark():
+def run_benchmark() -> None:
     print("Running Proofpath Epistemic Guards Benchmark...")
     print("=" * 70)
 
@@ -27,9 +27,11 @@ def run_benchmark():
         body=b"<html><body>Abstract only text...</body></html>",
         final_url="https://journals.sagepub.com/doi/abs/10.1177/0001",
     )
-    fetched = fetcher._finish("https://journals.sagepub.com/doi/abs/10.1177/0001", 1, resp, "fulltext", [])
+    url = "https://journals.sagepub.com/doi/abs/10.1177/0001"
+    fetched = fetcher._finish(url, 1, resp, "fulltext", [])
     d1_passed = fetched.text_kind == "landing"
-    print(f"D1 Guard (Landing Page Detection):      {'PASS' if d1_passed else 'FAIL'} (text_kind={fetched.text_kind})")
+    d1_status = "PASS" if d1_passed else "FAIL"
+    print(f"D1 Guard (Landing Page Detection):      {d1_status} (text_kind={fetched.text_kind})")
 
     # 2. D2 Guard Test: Refusal of contradictions from abstracts
     claim = Claim(
@@ -60,7 +62,9 @@ def run_benchmark():
     )
     finding = _verdict_finding(claim, status_abstract, verdict)
     d2_passed = finding is not None and finding.kind == Kind.NEI
-    print(f"D2 Guard (Abstract Refutation Demotion): {'PASS' if d2_passed else 'FAIL'} (verdict={finding.kind.value})")
+    d2_status = "PASS" if d2_passed else "FAIL"
+    verdict_val = finding.kind.value if finding else "None"
+    print(f"D2 Guard (Abstract Refutation Demotion): {d2_status} (verdict={verdict_val})")
 
     # 3. D3 Guard Test: Unindexed monographs/theses not called GHOST
     unindexed_citations = [
@@ -69,12 +73,15 @@ def run_benchmark():
         "Researcher, B. 2021. LLM Evaluation Flaws. Working paper 102.",
     ]
     d3_passed = True
+    last_state = State.NOT_INDEXED
     for cit in unindexed_citations:
         res = classify([], cit)
+        last_state = res.state
         if res.state == State.GHOST:
             d3_passed = False
             break
-    print(f"D3 Guard (Monograph/Thesis Ghost Guard):  {'PASS' if d3_passed else 'FAIL'} (state={res.state.value})")
+    d3_status = "PASS" if d3_passed else "FAIL"
+    print(f"D3 Guard (Monograph/Thesis Ghost Guard):  {d3_status} (state={last_state.value})")
 
     print("=" * 70)
     assert d1_passed and d2_passed and d3_passed

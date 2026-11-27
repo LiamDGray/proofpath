@@ -27,7 +27,7 @@ from functools import partial
 from typing import Any, Literal, Protocol
 
 import httpx
-import pymupdf
+import pdf_oxide
 from protego import Protego
 from scrapling.parser import Selector
 
@@ -302,11 +302,10 @@ def content_kind(content_type: str, body: bytes) -> Kind:
 
 
 def extract_text(body: bytes, kind: Kind) -> str:
-    """Plain text for the pipeline. Raises ``pymupdf.FileDataError`` on a corrupt PDF."""
+    """Plain text for the pipeline. Raises ``OSError`` on a corrupt PDF."""
     if kind == "pdf":
-        # pymupdf ships py.typed but leaves ``open`` itself unannotated.
-        with pymupdf.open(stream=body, filetype="pdf") as doc:  # type: ignore[no-untyped-call]
-            return "\f".join(page.get_text() for page in doc)
+        doc = pdf_oxide.PdfDocument.from_bytes(body)
+        return "\f".join(doc.extract_text(i) or "" for i in range(doc.page_count))
     if kind == "html":
         root = content_root(body)
         if root is None:
@@ -587,7 +586,7 @@ class Fetcher:
         kind = content_kind(response.content_type, response.body)
         try:
             text = extract_text(response.body, kind)
-        except pymupdf.FileDataError as exc:
+        except (OSError, RuntimeError, ValueError) as exc:
             # Unparseable input fails loudly and the run continues (spec section 15).
             notes.append(f"text extraction failed: {type(exc).__name__}")
             text = ""
@@ -597,7 +596,9 @@ class Fetcher:
             notes.append("reached but no text extracted")
         # D1 Guard: Do not classify landing pages or abstracts as fulltext
         final_url_lower = (response.final_url or url).lower()
-        if text_kind == "fulltext" and any(marker in final_url_lower for marker in ("/doi/abs/", "/doi/abs?", "/abstract")):
+        if text_kind == "fulltext" and any(
+            marker in final_url_lower for marker in ("/doi/abs/", "/doi/abs?", "/abstract")
+        ):
             text_kind = "landing"
             notes.append("landing page detected; classified as landing rather than fulltext")
         if self._cache is not None and text:
