@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urljoin, urlsplit
 
 import docx
-import pymupdf
+import pdf_oxide
 from docx.opc.exceptions import OpcError
 from docx.table import Table
 from lxml import etree
@@ -679,9 +679,8 @@ def from_page(fetched: Fetched) -> Page:
     own = _page_keys(url, base)
     if fetched.kind == "pdf":
         try:
-            # ``pymupdf.open`` ships unannotated (see ``from_pdf``).
-            opened = pymupdf.open(stream=fetched.body, filetype="pdf")  # type: ignore[no-untyped-call]
-        except (RuntimeError, ValueError) as error:
+            opened = pdf_oxide.PdfDocument.from_bytes(fetched.body)
+        except (RuntimeError, ValueError, OSError) as error:
             raise IngestError(f"cannot open {url}: {error}") from error
         return Page(_pdf_document(opened, name=url, source=url), {}, ())
     if fetched.kind == "text":
@@ -940,7 +939,7 @@ class _Block:
         return _collapse(" ".join(self.lines))
 
 
-# pymupdf's span flag bit 0: this span is printed as a superscript.
+# Span flag bit 0: this span is printed as a superscript.
 _SUPERSCRIPT = 1
 # A superscript holding nothing but a citation: "51", "3,4", "4-6" and their dashes.
 _SUPERSCRIPT_CITATION = re.compile(r"^\d{1,3}(?:\s*[,;\u2013\u2014-]\s*\d{1,3})*$")
@@ -968,7 +967,7 @@ _FOOTNOTE_BASE = re.compile(r"[.,;:!?]$")
 _CLOSERS = " \t\u201d\u2019\"'"
 
 
-def _line_text(spans: Sequence[dict[str, Any]]) -> str:
+def _line_text(spans: Sequence[Any]) -> str:
     """One PDF line's spans joined, with superscript citation markers spelled out.
 
     Nature-style citations are printed as superscripts, and flattening a page to text
@@ -981,14 +980,20 @@ def _line_text(spans: Sequence[dict[str, Any]]) -> str:
     """
     text = ""
     for span in spans:
-        piece = str(span.get("text", ""))
+        if isinstance(span, dict):
+            piece = str(span.get("text", ""))
+            flags = span.get("flags", 0)
+        else:
+            piece = str(getattr(span, "text", ""))
+            flags = getattr(span, "flags", 0)
         stripped = piece.strip()
+        is_super = bool(int(flags) & _SUPERSCRIPT) if isinstance(flags, (int, float)) else False
         # Two different views of what comes before. An exponent is printed tight against
         # its base, so the raw text decides it -- a space in front means citation. A
         # footnote marker may sit behind a closing quote ("...herself." 1), so spaces and
         # quotes are stripped before the punctuation is read.
         if (
-            int(span.get("flags", 0)) & _SUPERSCRIPT
+            is_super
             and _SUPERSCRIPT_CITATION.fullmatch(stripped)
             and not _EXPONENT_BASE.search(text)
             and not _FOOTNOTE_BASE.search(text.rstrip(_CLOSERS))
@@ -1006,36 +1011,118 @@ _IMAGE_BLOCK = 1
 SCANNED_PAGE = "no extractable text; the page is an image (scanned?)"
 
 
-def _page_blocks(page: pymupdf.Page, number: int) -> tuple[list[_Block], bool]:
+def _page_blocks(
+    doc: pdf_oxide.PdfDocument, page_index: int, number: int
+) -> tuple[list[_Block], bool]:
     """Every text block of one page in reading order, and whether the page is an image.
 
     The flag is true only when the page carries at least one image block and no text
     block at all: that is the shape of a scan, and it is reported as a ``PageError``.
     """
+    raw_spans = doc.extract_spans(page_index)
+    images = doc.extract_images(page_index) or doc.page_images(page_index)
+    image_only = bool(images) and not bool(raw_spans)
+    if not raw_spans:
+        return [], image_only
+
+    page_obj = doc[page_index]
+    page_height = float(page_obj.height)
+
+    # Convert spans to top-down coordinates:
+    # In pdf_oxide, bbox is (x, y, w, h) in PDF user space (origin at bottom-left).
+    # top = page_height - y
+    spans_with_coords: list[tuple[float, float, Any]] = []
+    for s in raw_spans:
+        x0, y_bot, _, _ = s.bbox
+        top = page_height - y_bot
+        spans_with_coords.append((top, x0, s))
+
+    # Sort spans by reading order (top then left)
+    spans_with_coords.sort(key=lambda item: (round(item[0]), item[1]))
+
+    # Group spans into lines where abs(top1 - top2) <= 3.0
+    raw_lines: list[tuple[float, float, list[Any]]] = []
+    current_line_top: float | None = None
+    current_line_left: float | None = None
+    current_line_spans: list[Any] = []
+
+    for top, left, s in spans_with_coords:
+        if current_line_top is None:
+            current_line_top = top
+            current_line_left = left
+            current_line_spans = [s]
+        elif abs(top - current_line_top) <= 3.0:
+            current_line_spans.append(s)
+        else:
+            if current_line_top is not None and current_line_left is not None:
+                raw_lines.append((current_line_top, current_line_left, current_line_spans))
+            current_line_top = top
+            current_line_left = left
+            current_line_spans = [s]
+    if current_line_spans and current_line_top is not None and current_line_left is not None:
+        raw_lines.append((current_line_top, current_line_left, current_line_spans))
+
+    lines: list[tuple[float, float, str]] = []
+    for l_top, l_left, l_spans in raw_lines:
+        text = _line_text(l_spans).strip()
+        if text:
+            lines.append((l_top, l_left, text))
+
+    if not lines:
+        return [], image_only
+
     blocks: list[_Block] = []
-    # pymupdf ships py.typed but leaves ``get_text`` unannotated.
-    blocks_of_page = page.get_text("dict")["blocks"]  # type: ignore[no-untyped-call]
-    types = {block["type"] for block in blocks_of_page}
-    image_only = _IMAGE_BLOCK in types and _TEXT_BLOCK not in types
-    for block in blocks_of_page:
-        if block["type"] != _TEXT_BLOCK:
-            continue  # an image cannot carry a claim; only text can
-        lines = tuple(
-            text for line in block["lines"] if (text := _line_text(line["spans"]).strip())
+    cur_block_top: float | None = None
+    cur_block_left: float | None = None
+    cur_block_lines: list[str] = []
+    last_line_top: float | None = None
+
+    for l_top, l_left, text in lines:
+        if cur_block_top is None or last_line_top is None or cur_block_left is None:
+            cur_block_top = l_top
+            cur_block_left = l_left
+            cur_block_lines = [text]
+            last_line_top = l_top
+        elif (l_top - last_line_top <= 25.0) and abs(l_left - cur_block_left) <= 40.0:
+            cur_block_lines.append(text)
+            last_line_top = l_top
+        else:
+            margin = (
+                cur_block_top < _MARGIN * page_height or last_line_top > (1 - _MARGIN) * page_height
+            )
+            blocks.append(
+                _Block(
+                    page=number,
+                    top=round(cur_block_top),
+                    left=cur_block_left,
+                    lines=tuple(cur_block_lines),
+                    margin=margin,
+                )
+            )
+            cur_block_top = l_top
+            cur_block_left = l_left
+            cur_block_lines = [text]
+            last_line_top = l_top
+
+    if (
+        cur_block_lines
+        and cur_block_top is not None
+        and cur_block_left is not None
+        and last_line_top is not None
+    ):
+        margin = (
+            cur_block_top < _MARGIN * page_height or last_line_top > (1 - _MARGIN) * page_height
         )
-        if not lines:
-            continue
-        x0, y0, _, y1 = block["bbox"]
-        height = page.rect.height
         blocks.append(
             _Block(
                 page=number,
-                top=round(y0),
-                left=x0,
-                lines=lines,
-                margin=y0 < _MARGIN * height or y1 > (1 - _MARGIN) * height,
+                top=round(cur_block_top),
+                left=cur_block_left,
+                lines=tuple(cur_block_lines),
+                margin=margin,
             )
         )
+
     blocks.sort(key=lambda block: (block.top, block.left))
     # Number first, filter second: "p.4 L3" is the third text line a reader counts on
     # page 4, and a running head that is dropped further down was still one of them.
@@ -1091,36 +1178,32 @@ def from_pdf(path: Path) -> Document:
     rather than passed on as a page with nothing on it.
     """
     try:
-        # ``pymupdf.open`` is the ``Document`` constructor, which ships unannotated.
-        opened = pymupdf.open(path)  # type: ignore[no-untyped-call]
+        opened = pdf_oxide.PdfDocument(str(path))
     except (RuntimeError, ValueError, OSError) as error:
-        # pymupdf's FileDataError, FileNotFoundError and EmptyFileError are all
-        # RuntimeError subclasses; a document nobody can open is not a page error.
         raise IngestError(f"cannot open {path}: {error}") from error
     return _pdf_document(opened, name=path.name, source=str(path))
 
 
-def _pdf_document(opened: pymupdf.Document, *, name: str, source: str) -> Document:
+def _pdf_document(opened: pdf_oxide.PdfDocument, *, name: str, source: str) -> Document:
     """The pages of an opened PDF, wherever it was opened from. ``source`` is what
     an error names: a path on disk, or the address a page was fetched from."""
     errors: list[PageError] = []
     pages: list[list[_Block]] = []
-    with opened as document:
-        count = document.page_count
-        if count < 1:
-            raise IngestError(f"cannot read {source}: the document has no pages")
-        for index in range(count):
-            number = index + 1
-            try:
-                blocks, image_only = _page_blocks(document[index], number)
-            except (RuntimeError, ValueError) as error:
-                # Spec section 15: the page is named and the run goes on. An
-                # unreadable page is never reported as an empty one.
-                errors.append(PageError(page=number, detail=f"{type(error).__name__}: {error}"))
-                continue
-            pages.append(blocks)
-            if image_only:
-                errors.append(PageError(page=number, detail=SCANNED_PAGE))
+    count = int(opened.page_count)
+    if count < 1:
+        raise IngestError(f"cannot read {source}: the document has no pages")
+    for index in range(count):
+        number = index + 1
+        try:
+            blocks, image_only = _page_blocks(opened, index, number)
+        except (RuntimeError, ValueError, OSError) as error:
+            # Spec section 15: the page is named and the run goes on. An
+            # unreadable page is never reported as an empty one.
+            errors.append(PageError(page=number, detail=f"{type(error).__name__}: {error}"))
+            continue
+        pages.append(blocks)
+        if image_only:
+            errors.append(PageError(page=number, detail=SCANNED_PAGE))
     return _assemble(
         _paragraphs_of_pages(_without_furniture(pages)),
         name=name,

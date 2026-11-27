@@ -24,6 +24,7 @@ def plain_env(monkeypatch: pytest.MonkeyPatch) -> None:
     # CI runners sometimes export these; the tests decide colour themselves.
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.delenv("FORCE_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
 
 
 def _build(

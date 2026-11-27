@@ -244,7 +244,7 @@ class StageLine(Line):
         return line
 
     def _draw_rich(self, width: int) -> Text:
-        """``✓ Parsing       24 pages · 42 refs                pymupdf  1.2s``.
+        """``✓ Parsing       24 pages · 42 refs                pdf-oxide  1.2s``.
 
         Symbol and name, the summary (or the progress bar while the stage runs), the
         attribution muted at the right, the elapsed time in the last six columns.

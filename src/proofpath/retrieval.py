@@ -188,7 +188,7 @@ class FastEmbedder:
     def embed(self, texts: Sequence[str]) -> np.ndarray:
         vectors = np.array(list(self._model.embed(list(texts))), dtype=np.float32)
         norms = np.linalg.norm(vectors, axis=1, keepdims=True)
-        return vectors / np.clip(norms, 1e-12, None)
+        return vectors / np.clip(norms, 1e-12, None)  # type: ignore[no-any-return]
 
     def close(self) -> None:
         """Release the embedding model. Idempotent.

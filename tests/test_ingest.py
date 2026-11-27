@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import base64
 import zipfile
 from collections.abc import Sequence
 from pathlib import Path
 
 import docx
-import pymupdf
+import pdf_oxide
 import pytest
 
 from proofpath.document import Document, Locator, PageError
@@ -450,15 +451,14 @@ FOOTER: tuple[tuple[float, float], str] = ((72, 760), "Journal of Things")
 
 def _write_pdf(path: Path, pages: Sequence[Blocks]) -> None:
     """Write a PDF whose pages hold text blocks at the given points."""
-    document = pymupdf.open()
-    try:
-        for blocks in pages:
-            page = document.new_page()
-            for point, text in blocks:
-                page.insert_text(point, text)
-        document.save(str(path))
-    finally:
-        document.close()
+    builder = pdf_oxide.DocumentBuilder()
+    for blocks in pages:
+        page = builder.page(595.0, 842.0)
+        for (x, y), text in blocks:
+            for i, line in enumerate(text.splitlines()):
+                page.at(x, 842.0 - (y + i * 15.0)).text(line)
+        page.done()
+    path.write_bytes(builder.build())
 
 
 # A string is one Word paragraph; a list of rows is one table.
@@ -662,18 +662,27 @@ def test_a_pdf_that_cannot_be_opened_at_all_raises_ingest_error(tmp_path: Path) 
         from_pdf(tmp_path / "absent.pdf")
 
 
+_TINY_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+)
+
+
 def _write_image_pdf(path: Path, *, blank_page: bool = False) -> None:
     """Page 1 holds text, page 2 holds nothing but an image, page 3 (optional) is blank."""
-    document = pymupdf.open()
-    try:
-        document.new_page().insert_text((72, 100), "Alpha one.")
-        pixmap = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 4, 4), 0)
-        document.new_page().insert_image(pymupdf.Rect(72, 72, 172, 172), pixmap=pixmap)
-        if blank_page:
-            document.new_page()
-        document.save(str(path))
-    finally:
-        document.close()
+    builder = pdf_oxide.DocumentBuilder()
+    page1 = builder.page(595.0, 842.0)
+    page1.at(72.0, 842.0 - 100.0).text("Alpha one.")
+    page1.done()
+
+    page2 = builder.page(595.0, 842.0)
+    page2.image_with_alt(_TINY_PNG, 72.0, 842.0 - 172.0, 100.0, 100.0, "scanned")
+    page2.done()
+
+    if blank_page:
+        page3 = builder.page(595.0, 842.0)
+        page3.done()
+
+    path.write_bytes(builder.build())
 
 
 def test_a_page_that_is_an_image_and_no_text_is_reported_as_such(tmp_path: Path) -> None:
@@ -711,14 +720,14 @@ def test_an_unparseable_page_is_reported_and_the_other_pages_survive(
             [((72, 100), "Gamma one.")],
         ],
     )
-    extract = pymupdf.Page.get_text
+    extract = pdf_oxide.PdfDocument.extract_spans
 
-    def explode(self: pymupdf.Page, *args: object, **kwargs: object) -> object:
-        if self.number == 1:  # `Page.number` is 0-based: this is page 2
+    def explode(self: pdf_oxide.PdfDocument, page: int, *args: object, **kwargs: object) -> object:
+        if page == 1:  # 0-based: this is page 2
             raise RuntimeError("broken page")
-        return extract(self, *args, **kwargs)
+        return extract(self, page, *args, **kwargs)
 
-    monkeypatch.setattr(pymupdf.Page, "get_text", explode)
+    monkeypatch.setattr(pdf_oxide.PdfDocument, "extract_spans", explode)
     document = from_pdf(path)
     assert [p.text for p in document.paragraphs] == ["Alpha one.", "Gamma one."]
     assert document.errors == (PageError(page=2, detail="RuntimeError: broken page"),)
@@ -732,10 +741,10 @@ def test_a_pdf_whose_every_page_fails_reports_every_page(
     path = tmp_path / "paper.pdf"
     _write_pdf(path, [[((72, 100), "Alpha one.")], [((72, 100), "Beta one.")]])
 
-    def explode(self: pymupdf.Page, *args: object, **kwargs: object) -> object:
+    def explode(self: pdf_oxide.PdfDocument, *args: object, **kwargs: object) -> object:
         raise RuntimeError("broken page")
 
-    monkeypatch.setattr(pymupdf.Page, "get_text", explode)
+    monkeypatch.setattr(pdf_oxide.PdfDocument, "extract_spans", explode)
     document = from_pdf(path)
     # An empty document is not a clean one: the coverage is on the record.
     assert document.paragraphs == ()
@@ -859,7 +868,7 @@ def test_load_rejects_a_missing_file(tmp_path: Path) -> None:
 
 
 def _span(text: str, *, superscript: bool = False) -> dict[str, object]:
-    """One pymupdf span dict, reduced to the two keys ``_line_text`` reads."""
+    """One span dict, reduced to the two keys ``_line_text`` reads."""
     return {"text": text, "flags": 1 if superscript else 0}
 
 
@@ -1220,10 +1229,11 @@ def test_from_page_finds_a_printed_reference_list() -> None:
 
 
 def test_from_page_reads_a_pdf_body_like_a_pdf_on_disk(tmp_path: Path) -> None:
-    pdf = pymupdf.open()
-    pdf.new_page().insert_text((72, 72), "A claim from a fetched PDF.")
-    body = pdf.tobytes()
-    pdf.close()
+    builder = pdf_oxide.DocumentBuilder()
+    page_builder = builder.page(595.0, 842.0)
+    page_builder.at(72.0, 842.0 - 72.0).text("A claim from a fetched PDF.")
+    page_builder.done()
+    body = builder.build()
     read = from_page(page(body, kind="pdf", content_type="application/pdf"))
     assert read.document.kind == "pdf"
     assert read.document.name == PAGE_URL

@@ -91,8 +91,8 @@ async def test_the_stage_table_has_fixed_columns_and_dot_separators() -> None:
         run = await a_run(pilot, schedulers)
         scheduler = schedulers[0]
         scheduler.move(run, "running")
-        scheduler.push(run, StageStart("Parsing", "pymupdf"))
-        scheduler.push(run, StageEnd("Parsing", "pymupdf", "24 pages, 42 refs", 1.2))
+        scheduler.push(run, StageStart("Parsing", "pdf-oxide"))
+        scheduler.push(run, StageEnd("Parsing", "pdf-oxide", "24 pages, 42 refs", 1.2))
         scheduler.push(run, StageStart("Resolving", "Crossref, S2"))
         scheduler.push(run, StageEnd("Resolving", "Crossref, S2", "38 ok, 3 amb, 1 ghost", 3.4))
         scheduler.push(run, StageStart("Verifying", "coreml"))
@@ -102,7 +102,7 @@ async def test_the_stage_table_has_fixed_columns_and_dot_separators() -> None:
     # 100 columns, less the log's padding, the border and the panel's padding.
     assert width == 94
     assert lines == [
-        "✓ Parsing       24 pages · 42 refs                                             pymupdf    1.2s",  # noqa: E501 - a 94-column golden, verbatim
+        "✓ Parsing       24 pages · 42 refs                                           pdf-oxide    1.2s",  # noqa: E501 - a 94-column golden, verbatim
         "⏺ Resolving     38 ok · 3 amb · 1 ghost                                   Crossref, S2    3.4s",  # noqa: E501 - a 94-column golden, verbatim
         "⏺ Verifying                                                                             coreml",  # noqa: E501 - a 94-column golden, verbatim
     ]
@@ -469,7 +469,7 @@ async def test_a_click_on_the_top_border_folds_the_run_and_keeps_its_coverage() 
     app, schedulers = rich_app()
     async with app.run_test(size=SIZE) as pilot:
         run = await a_run(pilot, schedulers)
-        schedulers[0].push(run, StageStart("Parsing", "pymupdf"))
+        schedulers[0].push(run, StageStart("Parsing", "pdf-oxide"))
         schedulers[0].move(run, "done", report=a_report())
         await pilot.pause()
         block = app.query_one(RunBlock)
@@ -822,8 +822,8 @@ async def test_narrow_terminals_get_the_flat_rows_and_the_panel_comes_back_on_re
     app, schedulers = rich_app()
     async with app.run_test(size=(50, 30)) as pilot:
         run = await a_run(pilot, schedulers)
-        schedulers[0].push(run, StageStart("Parsing", "pymupdf"))
-        schedulers[0].push(run, StageEnd("Parsing", "pymupdf", "24 pages, 42 refs", 1.2))
+        schedulers[0].push(run, StageStart("Parsing", "pdf-oxide"))
+        schedulers[0].push(run, StageEnd("Parsing", "pdf-oxide", "24 pages, 42 refs", 1.2))
         await pilot.pause()
         block = app.query_one(RunBlock)
         assert not block.panelled

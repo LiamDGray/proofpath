@@ -468,13 +468,13 @@ async def test_a_failing_engine_factory_fails_the_run(build) -> None:
 
 async def test_events_reach_the_listener_on_the_loop_thread(build) -> None:
     harness = build()
-    harness.io.emit["doc1"] = StageStart("Parsing", "pymupdf")
+    harness.io.emit["doc1"] = StageStart("Parsing", "pdf-oxide")
     run = harness.submit("doc1")
     harness.io.let_go("doc1")
     harness.model.let_go("doc1")
     await harness.scheduler.wait(run.id)
     assert [(run_id, event) for run_id, event, _ in harness.events] == [
-        (run.id, StageStart("Parsing", "pymupdf"))
+        (run.id, StageStart("Parsing", "pdf-oxide"))
     ]
     assert harness.events[0][2] is threading.main_thread()
     assert harness.io.threads["doc1"] is not threading.main_thread()

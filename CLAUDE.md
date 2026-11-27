@@ -28,7 +28,7 @@ These are not style preferences. Breaking one breaks the product's reason to exi
 |---|---|---|
 | CLI / TUI | `typer` + `textual` | bare `proofpath` opens the TUI via `invoke_without_command=True` |
 | HTTP | `httpx`, then `curl_cffi`, then browser on consent | fetch ladder, spec §7 |
-| PDF | `pymupdf` | pure Python, no Java/Docker |
+| PDF | `pdf-oxide` | MIT / Apache-2.0, Rust core |
 | Vector store | `sqlite-vec` | per-document corpora are small; no server |
 | Embeddings / NLI | ONNX runtime by default, `torch` only via the `[gpu]` extra | keeps base install small |
 | Config / cache paths | `platformdirs` | Windows/macOS/Linux parity |

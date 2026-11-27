@@ -452,15 +452,15 @@ async def test_events_render_stages_findings_and_the_footer() -> None:
         run = scheduler.runs[0]
 
         scheduler.move(run, "running")
-        scheduler.push(run, StageStart("Parse", "pymupdf"))
+        scheduler.push(run, StageStart("Parse", "pdf-oxide"))
         scheduler.push(run, Progress("Parse", 3, 42, "refs"))
-        scheduler.push(run, StageEnd("Parse", "pymupdf", "24 pages, 42 refs", 1.2))
+        scheduler.push(run, StageEnd("Parse", "pdf-oxide", "24 pages, 42 refs", 1.2))
         scheduler.push(run, Emitted(a_finding()))
         await pilot.pause()
 
         stage = app.query_one(StageLine).render().plain
         assert "Parse" in stage
-        assert "pymupdf" in stage
+        assert "pdf-oxide" in stage
         assert "24 pages, 42 refs" in stage
         assert "1.2s" in stage
 
@@ -1899,7 +1899,7 @@ async def test_a_click_on_the_header_folds_the_run_away_but_never_its_state() ->
         await submit(pilot, "/check draft.md")
         scheduler = schedulers[0]
         run = scheduler.runs[0]
-        scheduler.push(run, StageStart("Parse", "pymupdf"))
+        scheduler.push(run, StageStart("Parse", "pdf-oxide"))
         scheduler.move(run, "done", report=a_report())
         await pilot.pause()
         block = app.query_one(RunBlock)
@@ -1922,8 +1922,8 @@ async def test_a_click_on_a_stage_hides_its_detail_and_keeps_its_attribution() -
         await submit(pilot, "/check draft.md")
         scheduler = schedulers[0]
         run = scheduler.runs[0]
-        scheduler.push(run, StageStart("Parse", "pymupdf"))
-        scheduler.push(run, StageEnd("Parse", "pymupdf", "24 pages, 42 refs", 1.2))
+        scheduler.push(run, StageStart("Parse", "pdf-oxide"))
+        scheduler.push(run, StageEnd("Parse", "pdf-oxide", "24 pages, 42 refs", 1.2))
         await pilot.pause()
         stage = app.query_one(StageLine)
         await click(pilot, StageLine, offset=(2, 0))
@@ -2742,8 +2742,8 @@ async def test_up_and_down_walk_the_lines() -> None:
         scheduler = schedulers[0]
         run = scheduler.runs[0]
         scheduler.move(run, "running")
-        scheduler.push(run, StageStart("Parse", "pymupdf"))
-        scheduler.push(run, StageEnd("Parse", "pymupdf", "24 pages, 42 refs", 1.2))
+        scheduler.push(run, StageStart("Parse", "pdf-oxide"))
+        scheduler.push(run, StageEnd("Parse", "pdf-oxide", "24 pages, 42 refs", 1.2))
         scheduler.push(run, StageStart("Resolve references", "Crossref, OpenAlex"))
         await pilot.pause()
         header = app.query_one(RunHeader)
@@ -2772,7 +2772,7 @@ async def test_a_collapsed_block_is_skipped_by_the_walk() -> None:
         scheduler = schedulers[0]
         for run in scheduler.runs:
             scheduler.move(run, "running")
-            scheduler.push(run, StageStart("Parse", "pymupdf"))
+            scheduler.push(run, StageStart("Parse", "pdf-oxide"))
         await pilot.pause()
         first, second = app.query(RunHeader)
         first.focus()
@@ -3021,7 +3021,7 @@ async def test_ctrl_l_keeps_a_running_blocks_own_notes() -> None:
         scheduler = schedulers[0]
         run = scheduler.runs[0]
         scheduler.move(run, "running")
-        scheduler.push(run, StageStart("Parse", "pymupdf"))
+        scheduler.push(run, StageStart("Parse", "pdf-oxide"))
         scheduler.push(run, Note("still parsing"))
         await pilot.pause()
         inside = len(app.query_one(RunBlock).query(NoteLine))

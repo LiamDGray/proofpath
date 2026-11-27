@@ -324,7 +324,7 @@ class Stage:
     """One pipeline stage as the report shows it, with the provider that produced it."""
 
     name: str  # "Parsing" | "Resolving" | "Retractions" | "Fetching" | "Verifying"
-    by: str  # attribution: "pymupdf", "Crossref, OpenAlex", "Retraction Watch", "cpu"
+    by: str  # attribution: "pdf-oxide", "Crossref, OpenAlex", "Retraction Watch", "cpu"
     summary: str  # "24 pages, 42 refs"
     elapsed: float
 
