@@ -142,6 +142,8 @@ VERIFYING = "Verifying"
 JUDGING = "Judging"
 SUMMARISING = "Summarising"
 
+_IDENTIFIER_RE = re.compile(r"\b10\.\d{4,9}/\S+|\barxiv[\s:]*\d{4}\.\d{4,5}", re.IGNORECASE)
+
 # Attribution per stage. Parsing's and fetching's depend on the run and are
 # computed; these three are fixed by which providers the stage consults.
 CLAIMS_BY = "rules"
@@ -1716,8 +1718,18 @@ def _verdict_finding(claim: Claim, status: SourceStatus, verdict: Verdict) -> Fi
         title = f"claim contradicts {source}"
         detail = (verdict.reason,)
     elif verdict.label is Label.REFUTED:
-        kind = Kind.NOT_SUPPORTED
-        title = f"claim is not supported by {source}"
+        # D2 Guard: Refuse a contradiction from an abstract or blurb alone
+        if status.text_kind != "fulltext":
+            kind = Kind.NEI
+            title = (
+                "a page proofpath found neither supports nor contradicts the claim"
+                if found
+                else "source neither supports nor contradicts the claim"
+            )
+            detail = (*detail, f"demoted from REFUTED: evidence is {status.text_kind}, not full text")
+        else:
+            kind = Kind.NOT_SUPPORTED
+            title = f"claim is not supported by {source}"
     else:
         kind = Kind.NEI
         title = (

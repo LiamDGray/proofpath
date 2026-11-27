@@ -142,6 +142,7 @@ class Fetched:
     text: str
     notes: list[str]  # one line per step tried, e.g. "step 1 httpx: HTTP 403 (blocked)"
     from_cache: bool = False
+    text_kind: str = "fulltext"
 
     @property
     def ok(self) -> bool:
@@ -594,6 +595,11 @@ class Fetcher:
             # Reached is not read: an image, a corrupt PDF or an opaque type gives the
             # pipeline nothing to verify against, and the report must say so.
             notes.append("reached but no text extracted")
+        # D1 Guard: Do not classify landing pages or abstracts as fulltext
+        final_url_lower = (response.final_url or url).lower()
+        if text_kind == "fulltext" and any(marker in final_url_lower for marker in ("/doi/abs/", "/doi/abs?", "/abstract")):
+            text_kind = "landing"
+            notes.append("landing page detected; classified as landing rather than fulltext")
         if self._cache is not None and text:
             self._cache.add_source(
                 f"url:{url}",
@@ -614,6 +620,7 @@ class Fetcher:
             body=response.body,
             text=text,
             notes=notes,
+            text_kind=text_kind,
         )
 
     # --- transports ---------------------------------------------------------
