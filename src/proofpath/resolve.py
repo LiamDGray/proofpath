@@ -446,6 +446,7 @@ _URL = re.compile(r"https?://|\bwww\.", re.I)
 # of the consulted providers search. Their absence proves nothing.
 _UNINDEXED_WORDS = re.compile(
     r"\b(blog|dashboard|press release|user manual|reference manual|technical report|"
+    r"working paper|technical memo|monograph|thesis|dissertation|"
     r"white ?paper|accessed|retrieved|psyarxiv|socarxiv|osf\.io|zenodo|github\.com)\b",
     re.I,
 )

@@ -27,7 +27,7 @@ from functools import partial
 from typing import Any, Literal, Protocol
 
 import httpx
-import pymupdf
+import pdf_oxide
 from protego import Protego
 from scrapling.parser import Selector
 
@@ -142,6 +142,7 @@ class Fetched:
     text: str
     notes: list[str]  # one line per step tried, e.g. "step 1 httpx: HTTP 403 (blocked)"
     from_cache: bool = False
+    text_kind: str = "fulltext"
 
     @property
     def ok(self) -> bool:
@@ -301,11 +302,10 @@ def content_kind(content_type: str, body: bytes) -> Kind:
 
 
 def extract_text(body: bytes, kind: Kind) -> str:
-    """Plain text for the pipeline. Raises ``pymupdf.FileDataError`` on a corrupt PDF."""
+    """Plain text for the pipeline. Raises ``OSError`` on a corrupt PDF."""
     if kind == "pdf":
-        # pymupdf ships py.typed but leaves ``open`` itself unannotated.
-        with pymupdf.open(stream=body, filetype="pdf") as doc:  # type: ignore[no-untyped-call]
-            return "\f".join(page.get_text() for page in doc)
+        doc = pdf_oxide.PdfDocument.from_bytes(body)
+        return "\f".join(doc.extract_text(i) or "" for i in range(doc.page_count))
     if kind == "html":
         root = content_root(body)
         if root is None:
@@ -586,7 +586,7 @@ class Fetcher:
         kind = content_kind(response.content_type, response.body)
         try:
             text = extract_text(response.body, kind)
-        except pymupdf.FileDataError as exc:
+        except (OSError, RuntimeError, ValueError) as exc:
             # Unparseable input fails loudly and the run continues (spec section 15).
             notes.append(f"text extraction failed: {type(exc).__name__}")
             text = ""
@@ -594,6 +594,13 @@ class Fetcher:
             # Reached is not read: an image, a corrupt PDF or an opaque type gives the
             # pipeline nothing to verify against, and the report must say so.
             notes.append("reached but no text extracted")
+        # D1 Guard: Do not classify landing pages or abstracts as fulltext
+        final_url_lower = (response.final_url or url).lower()
+        if text_kind == "fulltext" and any(
+            marker in final_url_lower for marker in ("/doi/abs/", "/doi/abs?", "/abstract")
+        ):
+            text_kind = "landing"
+            notes.append("landing page detected; classified as landing rather than fulltext")
         if self._cache is not None and text:
             self._cache.add_source(
                 f"url:{url}",
@@ -614,6 +621,7 @@ class Fetcher:
             body=response.body,
             text=text,
             notes=notes,
+            text_kind=text_kind,
         )
 
     # --- transports ---------------------------------------------------------
